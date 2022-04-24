@@ -1,4 +1,4 @@
-# IPK-proj1
+# IPK-proj2
 
 Ulohou projektu bolo navrhnutie a implementácia sieťového analyzátoru v C/C++/C#, ktorý je schopný na určitom sieťovom rozhraní zachytávať a filtrovať pakety
 
