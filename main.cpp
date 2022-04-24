@@ -45,7 +45,6 @@ typedef struct flags
     bool icmp;
     bool notDef;
     int num;
-
 } flags;
 
 flags F;
@@ -497,9 +496,10 @@ int main(int argc, char **argv)
     /* Find the properties for the device */
     if (pcap_lookupnet(F.inter, &myIp, &myMask, errbuff) == -1)
     {
-        fprintf(stderr, "Couldn't get netmask for device %s: %s\n", F.inter, errbuff);
+        fprintf(stderr, "ERROR - couldn't get netmask for device %s: %s\n", F.inter, errbuff);
         myIp = 0;
         myMask = 0;
+        return 1;
     }
 
     /* Open the session in promiscuous mode */
@@ -519,7 +519,6 @@ int main(int argc, char **argv)
 
     /* Compile and apply the filter */
     create_filter();
-    printf("%s\n", filter.c_str());
     if (pcap_compile(handle, &fp, filter.c_str(), 0, myIp) == -1)
     {
         fprintf(stderr, "ERROR - couldn't parse filter %s: %s\n", filter.c_str(), pcap_geterr(handle));
