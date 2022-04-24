@@ -373,6 +373,7 @@ void hexDump(const u_char *packet, int len)
     unsigned char buff[17];
     unsigned char *pc = (unsigned char *)packet;
     bool printed = false;
+    bool eight = false;
     int index = -1;
 
     for (int i = 0; i < len; i++)
@@ -387,6 +388,12 @@ void hexDump(const u_char *packet, int len)
             }
 
             printf("0x%04x ", i);
+            eight = false;
+        }
+        if (index == 7)
+        {
+            printf(" ");
+            eight = true;
         }
 
         printf(" %02x", pc[i]);
@@ -412,6 +419,10 @@ void hexDump(const u_char *packet, int len)
         for (int i = 0; i < int(16 - strlen((const char *)buff)); i++)
         {
             printf("   ");
+        }
+        if (!eight)
+        {
+            printf(" ");
         }
         printf("  %s\n", buff);
     }
