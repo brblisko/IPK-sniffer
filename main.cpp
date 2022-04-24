@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <string>
 #include <unistd.h>
 #include <getopt.h>
@@ -118,17 +119,21 @@ void process_args(int argc, char **argv)
     int opt = 0;
     int long_indx = 0;
     while ((opt = getopt_long(argc, argv, "p:i::tun:h",
-                              options, &long_indx)) != -1)
+                              options, &long_indx)) != -1) // set string for arguments
     {
         switch (opt)
         {
         case 'i':
+            // code from https://cfengine.com/blog/2021/optional-arguments-with-getopt-long/
+            // MIT licence
+            // if we have --interface
 
             if (!optarg && optind < argc && argv[optind][0] != '-')
-            {
+            { // need to check if there is argument behind it and that argument is not another recognized argument
                 F.inter = argv[optind++];
             }
             break;
+            // end of code from https://cfengine.com/blog/2021/optional-arguments-with-getopt-long/
         case 'p':
             if (optarg)
             {
@@ -165,11 +170,19 @@ void process_args(int argc, char **argv)
         }
     }
 }
+// used code from https://www.tcpdump.org/pcap.html
+/*This document is Copyright 2002 Tim Carstens. All rights reserved. Redistribution and use, with or without modification,
+  are permitted provided that the following conditions are met:
 
+    1. Redistribution must retain the above copyright notice and this list of conditions.
+
+    2.The name of Tim Carstens may not be used to endorse or promote products derived from this document without specific prior written permission.
+
+Insert 'wh00t' for the BSD license here wh00t*/
 bool check_inter()
 {
     if (!F.inter)
-    {
+    { // print all interfaces
         char errbuff[PCAP_ERRBUF_SIZE];
         pcap_if_t *list;
         int tmp = pcap_findalldevs(&list, errbuff);
@@ -193,47 +206,21 @@ bool check_inter()
 
     return false;
 }
+// end of code from https://www.tcpdump.org/pcap.html
 
-bool open_dev()
-{
-    // used code from https://www.tcpdump.org/pcap.html
-    char errbuff[PCAP_ERRBUF_SIZE];
-    struct pcap_pkthdr header;
-    const u_char *packet;
-
-    handle = pcap_open_live(F.inter, BUFSIZ, 1, 1000, errbuff);
-    if (!handle)
-    {
-        fprintf(stderr, "ERROR - couldn't open device %s: %s\n", F.inter, errbuff);
-        return false;
-    }
-
-    if (pcap_datalink(handle) != DLT_EN10MB)
-    {
-        fprintf(stderr, "ERROR - device %s doesn't provide Ethernet headers - not supported\n", F.inter);
-        return (2);
-    }
-
-    /* Grab a packet */
-    packet = pcap_next(handle, &header);
-    /* Print its length */
-    printf("Jacked a packet with length of [%d]\n", header.len);
-    /* And close the session */
-
-    return true;
-}
-
+// creating filter
 void create_filter()
 {
+    // check if port was specified in arguments
     bool havePort = (F.port == -1) ? false : true;
 
     if (F.notDef)
     {
         if (F.arp)
-        {
+        { // if we have arp
             filter = "arp ";
             if (F.icmp || F.tcp || F.udp)
-            {
+            { // must add or if we have multiple protocols
                 filter = filter + "or ";
             }
         }
@@ -241,14 +228,14 @@ void create_filter()
         {
             filter = filter + "icmp or icmp6 ";
             if (F.tcp || F.udp)
-            {
+            { // must add or if we have multiple protocols
                 filter = filter + "or ";
             }
         }
         if (F.tcp)
         {
             if (havePort)
-            {
+            { // need to add port
                 filter = filter + "(tcp and port " + to_string(F.port) + ") ";
             }
             else
@@ -256,14 +243,14 @@ void create_filter()
                 filter = filter + "tcp ";
             }
             if (F.udp)
-            {
+            { // must add or if we have multiple protocols
                 filter = filter + "or ";
             }
         }
         if (F.udp)
         {
             if (havePort)
-            {
+            { // need to add port
                 filter = filter + "(udp and port " + to_string(F.port) + ") ";
             }
             else
@@ -271,46 +258,56 @@ void create_filter()
                 filter = filter + "udp ";
             }
         }
+        if (!F.tcp && !F.udp && havePort)
+        {
+            filter = filter + "or ";
+            filter = filter + "(tcp and port " + to_string(F.port) + ") or" + "(udp and port " + to_string(F.port) + ") ";
+        }
     }
     else
     {
         if (havePort)
-        {
+        { // if we have port we need to catch all protocols but with that port
             filter = "(tcp and port " + to_string(F.port) + ") or ";
             filter = filter + "(udp and port " + to_string(F.port) + ") or ";
             filter = filter + "arp or icmp or icmp6";
         }
         else
-        {
+        { // all protocols and all ports
             filter = "tcp or udp or arp or icmp or icmp6";
         }
     }
 }
 
+// ending program with ctrl c
 void signal_catch_ctrl_c(int num)
 {
+    pcap_close(handle);
     exit(0);
 }
 
+// inspired by and used code from https://stackoverflow.com/questions/5438482/getting-the-current-time-as-a-yyyy-mm-dd-hh-mm-ss-string
 void print_timestamp(struct pcap_pkthdr header)
 {
     struct tm *timeStamp;
     char tmp[80];
-
+    // change to tm struct
     timeStamp = localtime(&(header.ts.tv_sec));
-    strftime(tmp, 80, "%Y-%m-%dT%H-%M-%S.", timeStamp);
-
+    strftime(tmp, 80, "%Y-%m-%dT%H-%M-%S.", timeStamp); // format the output
+    // print time stamp, need to print miliseconds and time zone
     printf("timestamp: %s%03i+%.02ld:00\n", tmp, int(header.ts.tv_usec) / 1000, timeStamp->tm_gmtoff / 3200);
 }
+// end of code from https://stackoverflow.com/questions/5438482/getting-the-current-time-as-a-yyyy-mm-dd-hh-mm-ss-string
 
 void process_ipv4(struct iphdr *ip4Head, const u_char *packet)
 {
-
+    // print ip addresses
     printf("src IP: %s\n", inet_ntoa(*(in_addr *)&ip4Head->saddr));
     printf("des IP: %s\n", inet_ntoa(*(in_addr *)&ip4Head->daddr));
 
     if (ip4Head->protocol == IPPROTO_UDP)
     {
+        // get udp header
         struct udphdr *udpHead = (struct udphdr *)(packet + sizeof(struct ether_header) + (ip4Head->ihl * 4));
 
         printf("src port: %d\n", ntohs(udpHead->uh_sport));
@@ -318,10 +315,11 @@ void process_ipv4(struct iphdr *ip4Head, const u_char *packet)
     }
     else if (ip4Head->protocol == IPPROTO_TCP)
     {
-        struct udphdr *tcpHead = (struct udphdr *)(packet + sizeof(struct ether_header) + (ip4Head->ihl * 4));
+        // get tcp header
+        struct tcphdr *tcpHead = (struct tcphdr *)(packet + sizeof(struct ether_header) + (ip4Head->ihl * 4));
 
-        printf("src port: %d\n", ntohs(tcpHead->uh_sport));
-        printf("dst port: %d\n", ntohs(tcpHead->uh_dport));
+        printf("src port: %d\n", ntohs(tcpHead->th_sport));
+        printf("dst port: %d\n", ntohs(tcpHead->th_dport));
     }
     else if (ip4Head->protocol == IPPROTO_ICMP)
     {
@@ -331,15 +329,102 @@ void process_ipv4(struct iphdr *ip4Head, const u_char *packet)
 
 void process_ipv6(struct ip6_hdr *ip6Head, const u_char *packet)
 {
-    // TODO
+    // print ip addresses
+    printf("src IP: %s\n", inet_ntoa(*(in_addr *)&ip6Head->ip6_src));
+    printf("des IP: %s\n", inet_ntoa(*(in_addr *)&ip6Head->ip6_dst));
+
+    if (ip6Head->ip6_ctlun.ip6_un1.ip6_un1_nxt == IPPROTO_UDP)
+    {
+        // get udp header
+        struct udphdr *udpHead = (struct udphdr *)(packet + sizeof(struct ether_header) + 40);
+
+        printf("src port: %d\n", ntohs(udpHead->uh_sport));
+        printf("dst port: %d\n", ntohs(udpHead->uh_dport));
+    }
+    else if (ip6Head->ip6_ctlun.ip6_un1.ip6_un1_nxt == IPPROTO_TCP)
+    {
+        // get tcp header
+        struct tcphdr *tcpHead = (struct tcphdr *)(packet + sizeof(struct ether_header) + 40);
+
+        printf("src port: %d\n", ntohs(tcpHead->th_sport));
+        printf("dst port: %d\n", ntohs(tcpHead->th_dport));
+    }
+    else if (ip6Head->ip6_ctlun.ip6_un1.ip6_un1_nxt == IPPROTO_ICMPV6)
+    {
+
+        printf("\n");
+    }
 }
 
+void process_arp(ether_arp *arpHead, const u_char *packet)
+{
+    // print src and des ip
+    printf("src IP: %s\n", inet_ntoa(*(in_addr *)&arpHead->arp_spa));
+    printf("des IP: %s\n", inet_ntoa(*(in_addr *)&arpHead->arp_tpa));
+}
+
+// used code from https://www.programcreek.com/cpp/?CodeExample=hex+dump
+// Example 5
+// Project: NoMercy |  Author: mq1n |  File: INetworkScanner.cpp | License: GNU General Public License v3.0
+void hexDump(const u_char *packet, int len)
+{
+    printf("\n");
+
+    unsigned char buff[17];
+    unsigned char *pc = (unsigned char *)packet;
+    bool printed = false;
+    int index = -1;
+
+    for (int i = 0; i < len; i++)
+    {
+        if ((i % 16) == 0)
+        {
+            if (i != 0)
+            {
+                printf("  %s\n", buff);
+                printed = true;
+                index = -1;
+            }
+
+            printf("0x%04x ", i);
+        }
+
+        printf(" %02x", pc[i]);
+
+        if ((pc[i] < 0x20) || (pc[i] > 0x7e))
+        {
+            buff[i % 16] = '.';
+            index++;
+            printed = false;
+        }
+        else
+        {
+            buff[i % 16] = pc[i];
+            index++;
+            printed = false;
+        }
+        buff[(i % 16) + 1] = '\0';
+    }
+    if (!printed)
+    { // on last unfinished row the buffer is not printed
+        // need to print empty spaces to make it aligned
+        buff[index + 1] = '\0';
+        for (int i = 0; i < int(16 - strlen((const char *)buff)); i++)
+        {
+            printf("   ");
+        }
+        printf("  %s\n", buff);
+    }
+}
+// end of code from https://www.programcreek.com/cpp/?CodeExample=hex+dump
+
+// process packet
 void process_packet(const u_char *packet, struct pcap_pkthdr header)
 {
     print_timestamp(header);
-
+    // get ethernet header
     struct ether_header *ethHead = (struct ether_header *)packet;
-
+    // printing mac addresses by one byte (code inspired by https://www.binarytides.com/packet-sniffer-code-c-libpcap-linux-sockets/)
     printf("src MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", ethHead->ether_shost[0], ethHead->ether_shost[1], ethHead->ether_shost[2], ethHead->ether_shost[3], ethHead->ether_shost[4], ethHead->ether_shost[5]);
     printf("dst MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", ethHead->ether_dhost[0], ethHead->ether_dhost[1], ethHead->ether_dhost[2], ethHead->ether_dhost[3], ethHead->ether_dhost[4], ethHead->ether_dhost[5]);
 
@@ -348,17 +433,23 @@ void process_packet(const u_char *packet, struct pcap_pkthdr header)
 
     if (ntohs(ethHead->ether_type) == ETHERTYPE_IP)
     {
+        // get ip4 header
         struct iphdr *ip4Head = (struct iphdr *)(packet + sizeof(ether_header));
         process_ipv4(ip4Head, packet);
     }
     else if (ntohs(ethHead->ether_type) == ETHERTYPE_IPV6)
     {
+        // get ip6 header
         struct ip6_hdr *ip6Head = (struct ip6_hdr *)(packet + sizeof(ether_header));
         process_ipv6(ip6Head, packet);
     }
     else if (ntohs(ethHead->ether_type) == ETHERTYPE_ARP)
     {
+        // get arp header
+        struct ether_arp *arpHead = (struct ether_arp *)(packet + sizeof(ether_header));
+        process_arp(arpHead, packet);
     }
+    hexDump(packet, header.len);
 }
 
 int main(int argc, char **argv)
@@ -375,12 +466,32 @@ int main(int argc, char **argv)
     }
 
     // used code from https://www.tcpdump.org/pcap.html
+
+    /*This document is Copyright 2002 Tim Carstens. All rights reserved. Redistribution and use, with or without modification,
+      are permitted provided that the following conditions are met:
+
+        1. Redistribution must retain the above copyright notice and this list of conditions.
+
+        2.The name of Tim Carstens may not be used to endorse or promote products derived from this document without specific prior written permission.
+
+    Insert 'wh00t' for the BSD license here wh00t*/
+
     char errbuff[PCAP_ERRBUF_SIZE];
     struct pcap_pkthdr header;
     struct bpf_program fp;
-    bpf_u_int32 myIp4;
+    bpf_u_int32 myIp;
+    bpf_u_int32 myMask;
     const u_char *packet;
 
+    /* Find the properties for the device */
+    if (pcap_lookupnet(F.inter, &myIp, &myMask, errbuff) == -1)
+    {
+        fprintf(stderr, "Couldn't get netmask for device %s: %s\n", F.inter, errbuff);
+        myIp = 0;
+        myMask = 0;
+    }
+
+    /* Open the session in promiscuous mode */
     handle = pcap_open_live(F.inter, BUFSIZ, 1, 1000, errbuff);
     if (!handle)
     {
@@ -388,14 +499,17 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Check if device support link-layer header type*/
     if (pcap_datalink(handle) != DLT_EN10MB)
     {
         fprintf(stderr, "ERROR - device %s doesn't provide Ethernet headers - not supported\n", F.inter);
         return 1;
     }
 
+    /* Compile and apply the filter */
     create_filter();
-    if (pcap_compile(handle, &fp, filter.c_str(), 0, myIp4) == -1)
+    printf("%s\n", filter.c_str());
+    if (pcap_compile(handle, &fp, filter.c_str(), 0, myIp) == -1)
     {
         fprintf(stderr, "ERROR - couldn't parse filter %s: %s\n", filter.c_str(), pcap_geterr(handle));
         return (2);
@@ -407,7 +521,6 @@ int main(int argc, char **argv)
         return (2);
     }
 
-    /* Grab a packet */
     for (int i = 0; i < F.num; i++)
     {
         packet = pcap_next(handle, &header);
@@ -415,9 +528,8 @@ int main(int argc, char **argv)
         process_packet(packet, header);
     }
 
-    /* And close the session */
     pcap_close(handle);
 
-    printf("%s", filter.c_str());
+    // end of code from https://www.tcpdump.org/pcap.html
     return 0;
 }

@@ -1,4 +1,4 @@
-CFLAGS=-std=gnu99 -Wall
+CFLAGS=-std=c++17 -Wall
 LFLAGS=-lpcap 
 FILES=main.cpp
 PROJ=ipk-sniffer
